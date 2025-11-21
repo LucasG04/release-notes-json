@@ -1,0 +1,43 @@
+[
+  {
+    "version": "1.2.0",
+    "date": "2025-02-15",
+    "title": "Improved User Dashboard and Bug Fixes",
+    "changes": [
+      {
+        "type": "feature",
+        "audience": ["USER"],
+        "description": "Added a new customizable dashboard layout with drag-and-drop widgets.",
+        "imageUrls": [
+          "https://example.com/images/dashboard-new.png"
+        ]
+      },
+      {
+        "type": "fix",
+        "audience": ["ADMIN", "DEVOPS"],
+        "description": "Resolved an issue where system logs were not rotated correctly on weekends."
+      }
+    ]
+  },
+  {
+    "version": "1.2.1",
+    "date": "2025-03-01",
+    "title": "Minor Patch Release",
+    "changes": [
+      {
+        "type": "change",
+        "audience": ["USER"],
+        "description": "Updated color palette for better contrast and accessibility."
+      },
+      {
+        "type": "fix",
+        "audience": ["DEVOPS"],
+        "description": "Fixed container health check that incorrectly triggered restarts.",
+        "imageUrls": [
+          "https://example.com/images/healthcheck-fix.png",
+          "https://example.com/images/container-status.png"
+        ]
+      }
+    ]
+  }
+]
