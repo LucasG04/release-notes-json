@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Release Notes Editor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto px-4 py-8 max-w-6xl">
+      <header class="mb-8">
+        <!-- Configuration Section -->
+        <div class="bg-white rounded-lg shadow p-6 mb-6">
+          <h2 class="text-xl font-semibold mb-4">Konfiguration</h2>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2"
+                >Bitbucket Raw URL</label
+              >
+              <input
+                type="text"
+                id="bitbucketUrl"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="https://bitbucket.org/.../data.json"
+              />
+            </div>
+            <button
+              onclick="loadReleaseNotes()"
+              class="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              Release Notes laden
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Toast Messages Container -->
+      <div
+        id="messages"
+        class="fixed top-4 right-4 z-50 space-y-2 max-w-md"
+      ></div>
+
+      <!-- Add New Release Note -->
+      <div class="mt-8">
+        <button
+          onclick="addNewReleaseNote()"
+          class="bg-green-600 text-white px-6 py-2 rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+        >
+          + Neue Release Note hinzufügen
+        </button>
+      </div>
+
+      <!-- Release Notes List -->
+      <div id="releaseNotesList" class="mt-8 space-y-4"></div>
+
+      <!-- Generate JSON Section -->
+      <div class="mt-8 bg-white rounded-lg shadow p-6">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-semibold">JSON Ausgabe</h2>
+          <div class="flex items-center gap-2">
+            <button
+              onclick="generateJSON()"
+              class="bg-purple-600 text-white px-6 py-2 rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500"
+            >
+              JSON generieren
+            </button>
+            <button
+              onclick="generateJSON(); copyToClipboard()"
+              class="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              Copy JSON to Clipboard
+            </button>
+          </div>
+        </div>
+        <div>
+          <pre
+            id="jsonContent"
+            class="bg-gray-100 p-4 rounded-md overflow-x-auto text-sm"
+          ></pre>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // KONFIGURATION
+      const DEFAULT_BITBUCKET_URL = "";
+
+      // Globale Daten
+      let releaseNotes = [];
+      let nextId = 0;
+
+      // Initialisierung - Gespeicherte URL laden oder Default verwenden
+      const savedUrl =
+        localStorage.getItem("lastUsedJsonUrl") || DEFAULT_BITBUCKET_URL;
+      document.getElementById("bitbucketUrl").value = savedUrl;
+
+      // Hilfsfunktionen für Nachrichten (Toast)
+      function showMessage(message, type = "info") {
+        const messagesDiv = document.getElementById("messages");
+        const messageDiv = document.createElement("div");
+
+        const colors =
+          type === "error"
+            ? "bg-red-500 text-white"
+            : type === "success"
+            ? "bg-green-500 text-white"
+            : "bg-blue-500 text-white";
+
+        messageDiv.className = `${colors} px-6 py-4 rounded-lg shadow-lg transform transition-all duration-300 ease-in-out opacity-0 translate-x-full`;
+        messageDiv.innerHTML = `
+          <div class="flex items-center justify-between gap-4">
+            <span class="font-medium">${message}</span>
+            <button onclick="this.parentElement.parentElement.remove()" class="text-white hover:text-gray-200 font-bold text-xl leading-none">&times;</button>
+          </div>
+        `;
+
+        messagesDiv.appendChild(messageDiv);
+
+        // Animation einblenden
+        setTimeout(() => {
+          messageDiv.classList.remove("opacity-0", "translate-x-full");
+          messageDiv.classList.add("opacity-100", "translate-x-0");
+        }, 10);
+
+        // Automatisch ausblenden nach 5 Sekunden
+        setTimeout(() => {
+          messageDiv.classList.add("opacity-0", "translate-x-full");
+          setTimeout(() => messageDiv.remove(), 300);
+        }, 5000);
+      }
+
+      // Release Notes laden
+      async function loadReleaseNotes() {
+        const url = document.getElementById("bitbucketUrl").value.trim();
+
+        if (!url) {
+          showMessage("Bitte geben Sie eine URL ein.", "error");
+          return;
+        }
+
+        try {
+          const response = await fetch(url);
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+
+          const data = await response.json();
+
+          if (!Array.isArray(data)) {
+            throw new Error("JSON muss ein Array sein.");
+          }
+
+          releaseNotes = data.map((rn, index) => ({
+            ...rn,
+            _id: nextId++,
+          }));
+
+          // URL im localStorage speichern
+          localStorage.setItem("lastUsedJsonUrl", url);
+
+          renderReleaseNotes();
+          showMessage(
+            `${releaseNotes.length} Release Notes erfolgreich geladen.`,
+            "success"
+          );
+        } catch (error) {
+          showMessage(`Fehler beim Laden: ${error.message}`, "error");
+        }
+      }
+
+      // Release Notes rendern
+      function renderReleaseNotes() {
+        const container = document.getElementById("releaseNotesList");
+        container.innerHTML = "";
+
+        // Sortieren nach Version (neueste zuerst)
+        const sorted = [...releaseNotes].sort((a, b) => {
+          const versionA = (a.version || "0.0.0").split(".").map(Number);
+          const versionB = (b.version || "0.0.0").split(".").map(Number);
+
+          for (let i = 0; i < 3; i++) {
+            if (versionB[i] !== versionA[i]) {
+              return versionB[i] - versionA[i];
+            }
+          }
+          return 0;
+        });
+
+        const renderDate = (dateString) => {
+          const date = new Date(dateString);
+          return isNaN(date.getTime())
+            ? "N/A"
+            : date.toLocaleDateString("de-DE", {
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+              });
+        };
+
+        sorted.forEach((rn) => {
+          const div = document.createElement("div");
+          div.className = "bg-white rounded-lg shadow";
+          div.innerHTML = `
+                    <div class="p-4 border-b border-gray-200">
+                        <div class="flex justify-between items-center">
+                            <div class="flex-1">
+                                <h3 class="text-lg font-semibold">
+                                    Version ${rn.version || "N/A"} - ${
+            rn.title || "Ohne Titel"
+          }
+                                </h3>
+                                <p class="text-sm text-gray-600">Datum: ${renderDate(
+                                  rn.date
+                                )}</p>
+                            </div>
+                            <div class="flex gap-2">
+                                <button onclick="toggleReleaseNote(${rn._id})" 
+                                    class="text-blue-600 hover:text-blue-800 px-3 py-1 border border-blue-600 rounded">
+                                    Bearbeiten
+                                </button>
+                                <button onclick="saveReleaseNote(${rn._id})" 
+                                    class="text-green-600 hover:text-green-800 px-3 py-1 border border-green-600 rounded">
+                                    Speichern
+                                </button>
+                                <button onclick="deleteReleaseNote(${rn._id})" 
+                                    class="text-red-600 hover:text-red-800 px-3 py-1 border border-red-600 rounded">
+                                    Löschen
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="form-${rn._id}" class="hidden p-6">
+                        ${renderReleaseNoteForm(rn)}
+                    </div>
+                `;
+          container.appendChild(div);
+        });
+      }
+
+      // Formular für einzelne Release Note
+      function renderReleaseNoteForm(rn) {
+        return `
+                <div class="space-y-6">
+                    <!-- Version -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Version *</label>
+                        <input type="text" id="version-${rn._id}" value="${
+          rn.version || ""
+        }" 
+                            pattern="^[0-9]+\\.[0-9]+\\.[0-9]+$"
+                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                            placeholder="1.0.0">
+                        <p class="text-xs text-gray-500 mt-1">Format: X.Y.Z (z.B. 1.2.3)</p>
+                    </div>
+
+                    <!-- Date -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Datum *</label>
+                        <input type="date" id="date-${rn._id}" value="${
+          rn.date || ""
+        }" 
+                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500">
+                    </div>
+
+                    <!-- Title -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Titel *</label>
+                        <input type="text" id="title-${rn._id}" value="${
+          rn.title || ""
+        }" 
+                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                            placeholder="Release-Titel">
+                    </div>
+
+                    <!-- Changes -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Änderungen *</label>
+                        <div id="changes-${rn._id}" class="space-y-4">
+                            ${(rn.changes || [])
+                              .map((change, index) =>
+                                renderChangeForm(rn._id, change, index)
+                              )
+                              .join("")}
+                        </div>
+                        <button onclick="addChange(${rn._id})" 
+                            class="mt-4 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 text-sm">
+                            + Änderung hinzufügen
+                        </button>
+                    </div>
+                </div>
+            `;
+      }
+
+      // Formular für einzelne Change
+      function renderChangeForm(rnId, change, changeIndex) {
+        return `
+                <div class="border border-gray-300 rounded-lg p-4 bg-gray-50" id="change-${rnId}-${changeIndex}" data-change-index="${changeIndex}">
+                    <div class="flex justify-between items-center mb-4">
+                        <h4 class="font-semibold text-sm">Änderung ${
+                          changeIndex + 1
+                        }</h4>
+                        <button onclick="removeChange(${rnId}, ${changeIndex})" 
+                            class="text-red-600 hover:text-red-800 text-sm">
+                            Entfernen
+                        </button>
+                    </div>
+                    
+                    <!-- Type -->
+                    <div class="mb-3">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Typ *</label>
+                        <select id="type-${rnId}-${changeIndex}" 
+                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500">
+                            <option value="feature" ${
+                              change.type === "feature" ? "selected" : ""
+                            }>Feature</option>
+                            <option value="fix" ${
+                              change.type === "fix" ? "selected" : ""
+                            }>Fix</option>
+                            <option value="change" ${
+                              change.type === "change" ? "selected" : ""
+                            }>Change</option>
+                        </select>
+                    </div>
+
+                    <!-- Audience -->
+                    <div class="mb-3">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Zielgruppe * (mindestens eine)</label>
+                        <div class="space-y-2">
+                            <label class="flex items-center">
+                                <input type="checkbox" id="audience-admin-${rnId}-${changeIndex}" 
+                                    ${
+                                      (change.audience || []).includes("ADMIN")
+                                        ? "checked"
+                                        : ""
+                                    }
+                                    class="mr-2">
+                                <span>ADMIN</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="checkbox" id="audience-user-${rnId}-${changeIndex}" 
+                                    ${
+                                      (change.audience || []).includes("USER")
+                                        ? "checked"
+                                        : ""
+                                    }
+                                    class="mr-2">
+                                <span>USER</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="checkbox" id="audience-devops-${rnId}-${changeIndex}" 
+                                    ${
+                                      (change.audience || []).includes("DEVOPS")
+                                        ? "checked"
+                                        : ""
+                                    }
+                                    class="mr-2">
+                                <span>DEVOPS</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Description -->
+                    <div class="mb-3">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Beschreibung *</label>
+                        <textarea id="description-${rnId}-${changeIndex}" 
+                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                            rows="3">${change.description || ""}</textarea>
+                    </div>
+
+                    <!-- Image URLs -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Bild-URLs (optional)</label>
+                        <div id="imageUrls-${rnId}-${changeIndex}" class="space-y-2">
+                            ${(change.imageUrls || [])
+                              .map((url, urlIndex) =>
+                                renderImageUrlInput(
+                                  rnId,
+                                  changeIndex,
+                                  url,
+                                  urlIndex
+                                )
+                              )
+                              .join("")}
+                        </div>
+                        <button onclick="addImageUrl(${rnId}, ${changeIndex})" 
+                            class="mt-2 bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm">
+                            + Bild-URL hinzufügen
+                        </button>
+                    </div>
+                </div>
+            `;
+      }
+
+      // Input-Feld für Image URL
+      function renderImageUrlInput(rnId, changeIndex, url, urlIndex) {
+        return `
+                <div class="flex gap-2" id="imageUrl-${rnId}-${changeIndex}-${urlIndex}">
+                    <input type="url" id="imageUrlValue-${rnId}-${changeIndex}-${urlIndex}" 
+                        value="${url || ""}"
+                        pattern="^https://[^\\s/$.?#].[^\\s]*$"
+                        class="flex-1 px-3 py-1 border border-gray-300 rounded-md text-sm"
+                        placeholder="https://example.com/image.png">
+                    <button onclick="removeImageUrl(${rnId}, ${changeIndex}, ${urlIndex})" 
+                        class="text-red-600 hover:text-red-800 px-2 text-sm">
+                        ✕
+                    </button>
+                </div>
+            `;
+      }
+
+      // Toggle Release Note anzeigen/verstecken
+      function toggleReleaseNote(id) {
+        const form = document.getElementById(`form-${id}`);
+        form.classList.toggle("hidden");
+      }
+
+      // Neue Release Note hinzufügen
+      function addNewReleaseNote() {
+        const newReleaseNote = {
+          _id: nextId++,
+          version: "",
+          date: new Date().toISOString().split("T")[0],
+          title: "",
+          changes: [],
+        };
+        releaseNotes.unshift(newReleaseNote); // Am Anfang einfügen
+        renderReleaseNotes();
+        toggleReleaseNote(newReleaseNote._id);
+      }
+
+      // Release Note speichern
+      function saveReleaseNote(id) {
+        const rn = releaseNotes.find((r) => r._id === id);
+        if (!rn) return;
+
+        // Daten aus Formular lesen
+        const version = document.getElementById(`version-${id}`)?.value.trim();
+        const date = document.getElementById(`date-${id}`)?.value.trim();
+        const title = document.getElementById(`title-${id}`)?.value.trim();
+
+        // Validierung
+        if (!version || !/^[0-9]+\.[0-9]+\.[0-9]+$/.test(version)) {
+          showMessage("Ungültige Version (Format: X.Y.Z)", "error");
+          return;
+        }
+        if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+          showMessage("Ungültiges Datum (Format: YYYY-MM-DD)", "error");
+          return;
+        }
+        if (!title || title.length < 1) {
+          showMessage("Titel fehlt", "error");
+          return;
+        }
+
+        // Changes sammeln
+        const changes = [];
+        const changeElements = document.querySelectorAll(
+          `[data-change-index][id^="change-${id}-"]`
+        );
+
+        for (let i = 0; i < changeElements.length; i++) {
+          const changeIndex = parseInt(
+            changeElements[i].getAttribute("data-change-index")
+          );
+          const type = document.getElementById(
+            `type-${id}-${changeIndex}`
+          )?.value;
+
+          const audience = [];
+          if (
+            document.getElementById(`audience-admin-${id}-${changeIndex}`)
+              ?.checked
+          )
+            audience.push("ADMIN");
+          if (
+            document.getElementById(`audience-user-${id}-${changeIndex}`)
+              ?.checked
+          )
+            audience.push("USER");
+          if (
+            document.getElementById(`audience-devops-${id}-${changeIndex}`)
+              ?.checked
+          )
+            audience.push("DEVOPS");
+
+          if (audience.length === 0) {
+            showMessage(
+              `Change ${
+                changeIndex + 1
+              }: Mindestens eine Zielgruppe erforderlich`,
+              "error"
+            );
+            return;
+          }
+
+          const description = document
+            .getElementById(`description-${id}-${changeIndex}`)
+            ?.value.trim();
+          if (!description || description.length < 1) {
+            showMessage(
+              `Change ${changeIndex + 1}: Beschreibung fehlt`,
+              "error"
+            );
+            return;
+          }
+
+          const imageUrls = [];
+          let urlIndex = 0;
+          while (true) {
+            const urlInput = document.getElementById(
+              `imageUrlValue-${id}-${changeIndex}-${urlIndex}`
+            );
+            if (!urlInput) break;
+
+            const url = urlInput.value.trim();
+            if (url) {
+              if (!/^https:\/\/[^\s/$.?#].[^\s]*$/.test(url)) {
+                showMessage(
+                  `Change ${changeIndex + 1}, URL ${
+                    urlIndex + 1
+                  }: Ungültige URL`,
+                  "error"
+                );
+                return;
+              }
+              imageUrls.push(url);
+            }
+            urlIndex++;
+          }
+
+          const change = { type, audience, description };
+          if (imageUrls.length > 0) change.imageUrls = imageUrls;
+          changes.push(change);
+        }
+
+        if (changes.length === 0) {
+          showMessage("Mindestens eine Änderung erforderlich", "error");
+          return;
+        }
+
+        // Daten in releaseNotes aktualisieren
+        rn.version = version;
+        rn.date = date;
+        rn.title = title;
+        rn.changes = changes;
+
+        renderReleaseNotes();
+      }
+
+      // Release Note löschen
+      function deleteReleaseNote(id) {
+        if (confirm("Möchten Sie diese Release Note wirklich löschen?")) {
+          releaseNotes = releaseNotes.filter((rn) => rn._id !== id);
+          renderReleaseNotes();
+        }
+      }
+
+      // Change hinzufügen
+      function addChange(rnId) {
+        const rn = releaseNotes.find((r) => r._id === rnId);
+        if (!rn) return;
+
+        if (!rn.changes) rn.changes = [];
+
+        rn.changes.push({
+          type: "feature",
+          audience: [],
+          description: "",
+          imageUrls: [],
+        });
+
+        const changesContainer = document.getElementById(`changes-${rnId}`);
+        const changeIndex = rn.changes.length - 1;
+        changesContainer.insertAdjacentHTML(
+          "beforeend",
+          renderChangeForm(rnId, rn.changes[changeIndex], changeIndex)
+        );
+      }
+
+      // Change entfernen
+      function removeChange(rnId, changeIndex) {
+        const rn = releaseNotes.find((r) => r._id === rnId);
+        if (!rn) return;
+
+        // Erst alle aktuellen Werte aus dem Formular in das Datenmodell übernehmen
+        const changeElements = document.querySelectorAll(
+          `[data-change-index][id^="change-${rnId}-"]`
+        );
+
+        for (let i = 0; i < changeElements.length; i++) {
+          const idx = parseInt(
+            changeElements[i].getAttribute("data-change-index")
+          );
+
+          if (idx === changeIndex) continue; // Die zu löschende Change überspringen
+
+          const type = document.getElementById(`type-${rnId}-${idx}`)?.value;
+
+          const audience = [];
+          if (document.getElementById(`audience-admin-${rnId}-${idx}`)?.checked)
+            audience.push("ADMIN");
+          if (document.getElementById(`audience-user-${rnId}-${idx}`)?.checked)
+            audience.push("USER");
+          if (
+            document.getElementById(`audience-devops-${rnId}-${idx}`)?.checked
+          )
+            audience.push("DEVOPS");
+
+          const description =
+            document.getElementById(`description-${rnId}-${idx}`)?.value || "";
+
+          const imageUrls = [];
+          let urlIndex = 0;
+          while (true) {
+            const urlInput = document.getElementById(
+              `imageUrlValue-${rnId}-${idx}-${urlIndex}`
+            );
+            if (!urlInput) break;
+
+            const url = urlInput.value.trim();
+            if (url) imageUrls.push(url);
+            urlIndex++;
+          }
+
+          // Daten aktualisieren
+          if (rn.changes[idx]) {
+            rn.changes[idx].type = type;
+            rn.changes[idx].audience = audience;
+            rn.changes[idx].description = description;
+            rn.changes[idx].imageUrls = imageUrls;
+          }
+        }
+
+        // Jetzt die Change entfernen
+        rn.changes.splice(changeIndex, 1);
+
+        // Neu rendern mit aktualisierten Daten
+        const changesContainer = document.getElementById(`changes-${rnId}`);
+        changesContainer.innerHTML = rn.changes
+          .map((change, index) => renderChangeForm(rnId, change, index))
+          .join("");
+      }
+
+      // Image URL hinzufügen
+      function addImageUrl(rnId, changeIndex) {
+        const rn = releaseNotes.find((r) => r._id === rnId);
+        if (!rn || !rn.changes[changeIndex]) return;
+
+        if (!rn.changes[changeIndex].imageUrls) {
+          rn.changes[changeIndex].imageUrls = [];
+        }
+
+        rn.changes[changeIndex].imageUrls.push("");
+
+        const container = document.getElementById(
+          `imageUrls-${rnId}-${changeIndex}`
+        );
+        const urlIndex = rn.changes[changeIndex].imageUrls.length - 1;
+        container.insertAdjacentHTML(
+          "beforeend",
+          renderImageUrlInput(rnId, changeIndex, "", urlIndex)
+        );
+      }
+
+      // Image URL entfernen
+      function removeImageUrl(rnId, changeIndex, urlIndex) {
+        const rn = releaseNotes.find((r) => r._id === rnId);
+        if (!rn || !rn.changes[changeIndex]) return;
+
+        rn.changes[changeIndex].imageUrls.splice(urlIndex, 1);
+
+        document
+          .getElementById(`imageUrl-${rnId}-${changeIndex}-${urlIndex}`)
+          .remove();
+      }
+
+      // JSON generieren
+      function generateJSON() {
+        const errors = [];
+        const result = [];
+
+        for (const rn of releaseNotes) {
+          // Version validieren
+          const version = document
+            .getElementById(`version-${rn._id}`)
+            ?.value.trim();
+          if (!version || !/^[0-9]+\.[0-9]+\.[0-9]+$/.test(version)) {
+            errors.push(
+              `Release Note ID ${rn._id}: Ungültige Version (Format: X.Y.Z)`
+            );
+            continue;
+          }
+
+          // Datum validieren
+          const date = document.getElementById(`date-${rn._id}`)?.value.trim();
+          if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+            errors.push(
+              `Release Note ID ${rn._id}: Ungültiges Datum (Format: YYYY-MM-DD)`
+            );
+            continue;
+          }
+
+          // Titel validieren
+          const title = document
+            .getElementById(`title-${rn._id}`)
+            ?.value.trim();
+          if (!title || title.length < 1) {
+            errors.push(`Release Note ID ${rn._id}: Titel fehlt`);
+            continue;
+          }
+
+          // Changes sammeln und validieren
+          const changes = [];
+          const changeElements = document.querySelectorAll(
+            `[data-change-index][id^="change-${rn._id}-"]`
+          );
+
+          for (let i = 0; i < changeElements.length; i++) {
+            const changeIndex = parseInt(
+              changeElements[i].getAttribute("data-change-index")
+            );
+            const type = document.getElementById(
+              `type-${rn._id}-${changeIndex}`
+            )?.value;
+
+            // Audience sammeln
+            const audience = [];
+            if (
+              document.getElementById(`audience-admin-${rn._id}-${changeIndex}`)
+                ?.checked
+            )
+              audience.push("ADMIN");
+            if (
+              document.getElementById(`audience-user-${rn._id}-${changeIndex}`)
+                ?.checked
+            )
+              audience.push("USER");
+            if (
+              document.getElementById(
+                `audience-devops-${rn._id}-${changeIndex}`
+              )?.checked
+            )
+              audience.push("DEVOPS");
+
+            if (audience.length === 0) {
+              errors.push(
+                `Release Note ${version}, Change ${
+                  changeIndex + 1
+                }: Mindestens eine Zielgruppe erforderlich`
+              );
+              continue;
+            }
+
+            const description = document
+              .getElementById(`description-${rn._id}-${changeIndex}`)
+              ?.value.trim();
+            if (!description || description.length < 1) {
+              errors.push(
+                `Release Note ${version}, Change ${
+                  changeIndex + 1
+                }: Beschreibung fehlt`
+              );
+              continue;
+            }
+
+            // Image URLs sammeln
+            const imageUrls = [];
+            let urlIndex = 0;
+            while (true) {
+              const urlInput = document.getElementById(
+                `imageUrlValue-${rn._id}-${changeIndex}-${urlIndex}`
+              );
+              if (!urlInput) break;
+
+              const url = urlInput.value.trim();
+              if (url) {
+                if (!/^https:\/\/[^\s/$.?#].[^\s]*$/.test(url)) {
+                  errors.push(
+                    `Release Note ${version}, Change ${changeIndex + 1}, URL ${
+                      urlIndex + 1
+                    }: Ungültige URL (muss mit https:// beginnen)`
+                  );
+                } else {
+                  imageUrls.push(url);
+                }
+              }
+              urlIndex++;
+            }
+
+            const change = {
+              type,
+              audience,
+              description,
+            };
+
+            if (imageUrls.length > 0) {
+              change.imageUrls = imageUrls;
+            }
+
+            changes.push(change);
+          }
+
+          if (changes.length === 0) {
+            errors.push(
+              `Release Note ${version}: Mindestens eine Änderung erforderlich`
+            );
+            continue;
+          }
+
+          result.push({
+            version,
+            date,
+            title,
+            changes,
+          });
+        }
+
+        if (errors.length > 0) {
+          showMessage(`Validierungsfehler:\n${errors.join("\n")}`, "error");
+          return;
+        }
+
+        // JSON anzeigen
+        const json = JSON.stringify(result, null, 2);
+        document.getElementById("jsonContent").textContent = json;
+      }
+
+      // Copy to Clipboard
+      function copyToClipboard() {
+        const jsonContent = document.getElementById("jsonContent").textContent;
+        navigator.clipboard
+          .writeText(jsonContent)
+          .then(() => {
+            showMessage("JSON in die Zwischenablage kopiert!", "success");
+          })
+          .catch((err) => {
+            showMessage(`Fehler beim Kopieren: ${err.message}`, "error");
+          });
+      }
+    </script>
+  </body>
+</html>
