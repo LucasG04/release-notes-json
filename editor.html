@@ -81,6 +81,29 @@
       </div>
     </div>
 
+    <!-- Image Preview Modal -->
+    <div
+      id="imagePreviewModal"
+      class="fixed inset-0 bg-black bg-opacity-75 z-50 hidden items-center justify-center p-4"
+      onclick="closeImagePreview()"
+    >
+      <div class="relative max-w-7xl max-h-full">
+        <button
+          onclick="closeImagePreview()"
+          class="absolute -top-10 right-0 text-white hover:text-gray-300 text-3xl font-bold leading-none"
+        >
+          &times;
+        </button>
+        <img
+          id="previewImage"
+          src=""
+          alt="Vorschau"
+          class="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
+          onclick="event.stopPropagation()"
+        />
+      </div>
+    </div>
+
     <script>
       // KONFIGURATION
       const DEFAULT_BITBUCKET_URL = "";
@@ -369,6 +392,11 @@
                         pattern="^https://[^\\s/$.?#].[^\\s]*$"
                         class="flex-1 px-3 py-1 border border-gray-300 rounded-md text-sm"
                         placeholder="https://example.com/image.png">
+                    <button onclick="openImagePreviewFromInput(${rnId}, ${changeIndex}, ${urlIndex}); event.stopPropagation();" 
+                        class="text-blue-600 hover:text-blue-800 px-2 text-sm"
+                        title="Vorschau">
+                        &#x1F441;
+                    </button>
                     <button onclick="removeImageUrl(${rnId}, ${changeIndex}, ${urlIndex})" 
                         class="text-red-600 hover:text-red-800 px-2 text-sm">
                         ✕
@@ -789,6 +817,43 @@
             showMessage(`Fehler beim Kopieren: ${err.message}`, "error");
           });
       }
+
+      // Image Preview
+      function openImagePreviewFromInput(rnId, changeIndex, urlIndex) {
+        const urlInput = document.getElementById(
+          `imageUrlValue-${rnId}-${changeIndex}-${urlIndex}`
+        );
+        if (!urlInput) return;
+
+        const url = urlInput.value.trim();
+        if (!url) {
+          showMessage("Bitte geben Sie zuerst eine URL ein.", "error");
+          return;
+        }
+
+        openImagePreview(url);
+      }
+
+      function openImagePreview(url) {
+        const modal = document.getElementById("imagePreviewModal");
+        const img = document.getElementById("previewImage");
+        img.src = url;
+        modal.classList.remove("hidden");
+        modal.classList.add("flex");
+      }
+
+      function closeImagePreview() {
+        const modal = document.getElementById("imagePreviewModal");
+        modal.classList.add("hidden");
+        modal.classList.remove("flex");
+      }
+
+      // ESC-Taste schließt die Vorschau
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          closeImagePreview();
+        }
+      });
     </script>
   </body>
 </html>
