@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Release Notes Editor</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
   </head>
   <body class="bg-gray-50 min-h-screen">
     <div class="container mx-auto px-4 py-8 max-w-6xl">
@@ -33,6 +34,12 @@
           </div>
         </div>
       </header>
+
+      <!-- Bookmarks Section -->
+      <div class="bg-white rounded-lg shadow p-6 mb-6">
+        <h2 class="text-xl font-semibold mb-4">Bookmarks</h2>
+        <div id="bookmarksList" class="space-y-3"></div>
+      </div>
 
       <!-- Toast Messages Container -->
       <div
@@ -111,6 +118,28 @@
       // Verfügbare Zielgruppen
       const AVAILABLE_AUDIENCES = ["ADMIN", "USER", "DEVOPS"];
 
+      // Verfügbare Change-Typen
+      const CHANGE_TYPES = ["feature", "change", "fix"];
+
+      // Fixe Bookmarks (nicht editierbar)
+      const BOOKMARKS = [
+        {
+          name: "Bitbucket Repository",
+          url: "https://bitbucket.org/your-repo",
+          description: "Haupt-Repository",
+        },
+        {
+          name: "Dokumentation",
+          url: "https://docs.example.com",
+          description: "Projekt-Dokumentation",
+        },
+        {
+          name: "Issue Tracker",
+          url: "https://jira.example.com",
+          description: "Bug- und Feature-Tracking",
+        },
+      ];
+
       // Globale Daten
       let releaseNotes = [];
       let nextId = 0;
@@ -119,6 +148,9 @@
       const savedUrl =
         localStorage.getItem("lastUsedJsonUrl") || DEFAULT_BITBUCKET_URL;
       document.getElementById("bitbucketUrl").value = savedUrl;
+
+      // Bookmarks rendern
+      renderBookmarks();
 
       // Hilfsfunktionen für Nachrichten (Toast)
       function showMessage(message, type = "info") {
@@ -330,10 +362,23 @@
                     <!-- Title -->
                     <div class="mb-3">
                         <label class="block text-sm font-medium text-gray-700 mb-1">Title *</label>
-                        <input type="text" id="title-${rnId}-${changeIndex}" 
-                            value="${change.title || ""}"
-                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-                            placeholder="Titel der Änderung">
+                        <div class="flex gap-2">
+                            <input type="text" id="title-${rnId}-${changeIndex}" 
+                                value="${change.title || ""}"
+                                class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                                placeholder="Titel der Änderung">
+                            <select id="type-${rnId}-${changeIndex}" 
+                                class="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500">
+                                ${CHANGE_TYPES.map(
+                                  (type) => `
+                                <option value="${type}" ${
+                                    (change.type || "feature") === type
+                                      ? "selected"
+                                      : ""
+                                  }>${type}</option>`
+                                ).join("")}
+                            </select>
+                        </div>
                     </div>
 
                     <!-- Audience -->
@@ -465,9 +510,16 @@
             ?.value.trim();
 
           if (!title || title.length < 1) {
-            showMessage(`Change ${changeIndex + 1}: Titel fehlt`, "error");
+            showMessage(
+              `Change ${changeIndex + 1}: Titel ist erforderlich`,
+              "error"
+            );
             return;
           }
+
+          const type =
+            document.getElementById(`type-${id}-${changeIndex}`)?.value ||
+            "feature";
 
           const audience = [];
           for (const aud of AVAILABLE_AUDIENCES) {
@@ -524,7 +576,7 @@
             urlIndex++;
           }
 
-          const change = { title, audience, description };
+          const change = { title, type, audience, description };
           if (imageUrls.length > 0) change.imageUrls = imageUrls;
           changes.push(change);
         }
@@ -559,6 +611,7 @@
 
         rn.changes.push({
           title: "",
+          type: "feature",
           audience: [...AVAILABLE_AUDIENCES],
           description: "",
           imageUrls: [],
@@ -592,6 +645,9 @@
           const title =
             document.getElementById(`title-${rnId}-${idx}`)?.value.trim() || "";
 
+          const type =
+            document.getElementById(`type-${rnId}-${idx}`)?.value || "feature";
+
           const audience = [];
           for (const aud of AVAILABLE_AUDIENCES) {
             if (
@@ -621,6 +677,7 @@
           // Daten aktualisieren
           if (rn.changes[idx]) {
             rn.changes[idx].title = title;
+            rn.changes[idx].type = type;
             rn.changes[idx].audience = audience;
             rn.changes[idx].description = description;
             rn.changes[idx].imageUrls = imageUrls;
@@ -714,10 +771,14 @@
               errors.push(
                 `Release Note ${version}, Change ${
                   changeIndex + 1
-                }: Titel fehlt`
+                }: Titel ist erforderlich`
               );
               continue;
             }
+
+            const type =
+              document.getElementById(`type-${rn._id}-${changeIndex}`)?.value ||
+              "feature";
 
             // Audience sammeln
             const audience = [];
@@ -777,6 +838,7 @@
 
             const change = {
               title,
+              type,
               audience,
               description,
             };
@@ -861,6 +923,31 @@
           closeImagePreview();
         }
       });
+
+      // Bookmarks rendern
+      function renderBookmarks() {
+        const container = document.getElementById("bookmarksList");
+        if (!container) return;
+
+        container.innerHTML = BOOKMARKS.map(
+          (bookmark) => `
+          <a href="${bookmark.url}" target="_blank" rel="noopener noreferrer" 
+             class="flex items-start gap-3 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-blue-500 transition-colors">
+            <i data-lucide="external-link" class="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5"></i>
+            <div class="flex-1 min-w-0">
+              <div class="font-medium text-gray-900">${bookmark.name}</div>
+              <div class="text-sm text-gray-600">${bookmark.description}</div>
+              <div class="text-xs text-gray-400 truncate mt-1">${bookmark.url}</div>
+            </div>
+          </a>
+        `
+        ).join("");
+
+        lucide.createIcons();
+      }
+
+      // Lucide Icons initialisieren
+      lucide.createIcons();
     </script>
   </body>
 </html>
