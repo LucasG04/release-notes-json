@@ -6,8 +6,12 @@
     <title>Release Notes Editor</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"
+    ></script>
   </head>
-  <body class="bg-gray-50 min-h-screen">
+  <body class="bg-gray-50 min-h-screen" x-data="editorApp()">
     <div class="container mx-auto px-4 py-8 max-w-6xl">
       <header class="mb-8">
         <!-- Configuration Section -->
@@ -20,13 +24,13 @@
               >
               <input
                 type="text"
-                id="bitbucketUrl"
+                x-model="bitbucketUrl"
                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 placeholder="https://bitbucket.org/.../data.json"
               />
             </div>
             <button
-              onclick="loadReleaseNotes()"
+              @click="loadReleaseNotes()"
               class="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               Release Notes laden
@@ -38,19 +42,72 @@
       <!-- Bookmarks Section -->
       <div class="bg-white rounded-lg shadow p-6 mb-6">
         <h2 class="text-xl font-semibold mb-4">Bookmarks</h2>
-        <div id="bookmarksList" class="space-y-3"></div>
+        <div class="space-y-3">
+          <template x-for="bookmark in bookmarks" :key="bookmark.url">
+            <a
+              :href="bookmark.url"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="flex items-start gap-3 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-blue-500 transition-colors"
+            >
+              <i
+                data-lucide="external-link"
+                class="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5"
+              ></i>
+              <div class="flex-1 min-w-0">
+                <div
+                  class="font-medium text-gray-900"
+                  x-text="bookmark.name"
+                ></div>
+                <div
+                  class="text-sm text-gray-600"
+                  x-text="bookmark.description"
+                ></div>
+                <div
+                  class="text-xs text-gray-400 truncate mt-1"
+                  x-text="bookmark.url"
+                ></div>
+              </div>
+            </a>
+          </template>
+        </div>
       </div>
 
       <!-- Toast Messages Container -->
-      <div
-        id="messages"
-        class="fixed top-4 right-4 z-50 space-y-2 max-w-md"
-      ></div>
+      <div class="fixed top-4 right-4 z-50 space-y-2 max-w-md">
+        <template x-for="message in messages" :key="message.id">
+          <div
+            x-show="message.visible"
+            x-transition:enter="transform transition-all duration-300 ease-in-out"
+            x-transition:enter-start="opacity-0 translate-x-full"
+            x-transition:enter-end="opacity-100 translate-x-0"
+            x-transition:leave="transform transition-all duration-300 ease-in-out"
+            x-transition:leave-start="opacity-100 translate-x-0"
+            x-transition:leave-end="opacity-0 translate-x-full"
+            :class="{
+              'bg-red-500 text-white': message.type === 'error',
+              'bg-green-500 text-white': message.type === 'success',
+              'bg-blue-500 text-white': message.type === 'info'
+            }"
+            class="px-6 py-4 rounded-lg shadow-lg"
+          >
+            <div class="flex items-center justify-between gap-4">
+              <span class="font-medium" x-text="message.text"></span>
+              <button
+                @click="removeMessage(message.id)"
+                class="text-white hover:text-gray-200 font-bold text-xl leading-none"
+              >
+                &times;
+              </button>
+            </div>
+          </div>
+        </template>
+      </div>
 
       <!-- Add New Release Note -->
       <div class="mt-8">
         <button
-          onclick="addNewReleaseNote()"
+          @click="addNewReleaseNote()"
           class="bg-green-600 text-white px-6 py-2 rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
         >
           + Neue Release Note hinzufügen
@@ -58,7 +115,214 @@
       </div>
 
       <!-- Release Notes List -->
-      <div id="releaseNotesList" class="mt-8 space-y-4"></div>
+      <div class="mt-8 space-y-4">
+        <template x-for="rn in sortedReleaseNotes" :key="rn._id">
+          <div class="bg-white rounded-lg shadow">
+            <div class="p-4 border-b border-gray-200">
+              <div class="flex justify-between items-center">
+                <div class="flex-1">
+                  <h3 class="text-lg font-semibold">
+                    <span x-text="rn.version || 'Neue Version'"></span>
+                    <span
+                      x-show="!rn.version"
+                      class="text-gray-400 text-sm ml-2"
+                      >(noch nicht gespeichert)</span
+                    >
+                  </h3>
+                  <p class="text-sm text-gray-600">
+                    Datum: <span x-text="formatDate(rn.date)"></span>
+                  </p>
+                </div>
+                <div class="flex gap-2">
+                  <button
+                    @click="rn.expanded = !rn.expanded"
+                    class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 text-sm"
+                  >
+                    <span
+                      x-text="rn.expanded ? 'Schließen' : 'Bearbeiten'"
+                    ></span>
+                  </button>
+                  <button
+                    @click="deleteReleaseNote(rn._id)"
+                    class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 text-sm"
+                  >
+                    Löschen
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div x-show="rn.expanded" x-transition class="p-6">
+              <!-- Version -->
+              <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 mb-2"
+                  >Version *</label
+                >
+                <input
+                  type="text"
+                  x-model="rn.version"
+                  pattern="^[0-9]+\.[0-9]+\.[0-9]+$"
+                  class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                  placeholder="1.0.0"
+                />
+                <p class="text-xs text-gray-500 mt-1">
+                  Format: X.Y.Z (z.B. 1.2.3)
+                </p>
+              </div>
+
+              <!-- Date -->
+              <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 mb-2"
+                  >Datum *</label
+                >
+                <input
+                  type="date"
+                  x-model="rn.date"
+                  class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <!-- Changes -->
+              <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 mb-2"
+                  >Änderungen *</label
+                >
+                <div class="space-y-4">
+                  <template
+                    x-for="(change, changeIndex) in rn.changes"
+                    :key="changeIndex"
+                  >
+                    <div
+                      class="border border-gray-300 rounded-lg p-4 bg-gray-50"
+                    >
+                      <div class="flex justify-between items-center mb-4">
+                        <h4 class="font-semibold text-sm">
+                          Änderung <span x-text="changeIndex + 1"></span>
+                        </h4>
+                        <button
+                          @click="removeChange(rn, changeIndex)"
+                          class="text-red-600 hover:text-red-800 text-sm"
+                        >
+                          Entfernen
+                        </button>
+                      </div>
+
+                      <!-- Title -->
+                      <div class="mb-3">
+                        <label
+                          class="block text-sm font-medium text-gray-700 mb-1"
+                          >Title *</label
+                        >
+                        <div class="flex gap-2">
+                          <input
+                            type="text"
+                            x-model="change.title"
+                            class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                            placeholder="Titel der Änderung"
+                          />
+                          <select
+                            x-model="change.type"
+                            class="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                          >
+                            <template x-for="type in changeTypes" :key="type">
+                              <option :value="type" x-text="type"></option>
+                            </template>
+                          </select>
+                        </div>
+                      </div>
+
+                      <!-- Audience -->
+                      <div class="mb-3">
+                        <label
+                          class="block text-sm font-medium text-gray-700 mb-1"
+                          >Zielgruppe *</label
+                        >
+                        <div class="flex flex-wrap items-center gap-4">
+                          <template
+                            x-for="aud in availableAudiences"
+                            :key="aud"
+                          >
+                            <label class="flex items-center">
+                              <input
+                                type="checkbox"
+                                :checked="change.audience.includes(aud)"
+                                @change="toggleAudience(change, aud)"
+                                class="mr-2"
+                              />
+                              <span x-text="aud"></span>
+                            </label>
+                          </template>
+                        </div>
+                      </div>
+
+                      <!-- Description -->
+                      <div class="mb-3">
+                        <label
+                          class="block text-sm font-medium text-gray-700 mb-1"
+                          >Beschreibung *</label
+                        >
+                        <textarea
+                          x-model="change.description"
+                          class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                          rows="3"
+                        ></textarea>
+                      </div>
+
+                      <!-- Image URLs -->
+                      <div>
+                        <label
+                          class="block text-sm font-medium text-gray-700 mb-1"
+                          >Bild-URLs (optional)</label
+                        >
+                        <div class="space-y-2">
+                          <template
+                            x-for="(url, urlIndex) in change.imageUrls"
+                            :key="urlIndex"
+                          >
+                            <div class="flex gap-2">
+                              <input
+                                type="url"
+                                x-model="change.imageUrls[urlIndex]"
+                                pattern="^https://[^\s/$.?#].[^\s]*$"
+                                class="flex-1 px-3 py-1 border border-gray-300 rounded-md text-sm"
+                                placeholder="https://example.com/image.png"
+                              />
+                              <button
+                                @click="openImagePreview(url)"
+                                class="text-blue-600 hover:text-blue-800 px-2 text-sm"
+                                title="Vorschau"
+                              >
+                                &#x1F441;
+                              </button>
+                              <button
+                                @click="removeImageUrl(change, urlIndex)"
+                                class="text-red-600 hover:text-red-800 px-2 text-sm"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          </template>
+                        </div>
+                        <button
+                          @click="addImageUrl(change)"
+                          class="mt-2 bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm"
+                        >
+                          + Bild-URL hinzufügen
+                        </button>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+                <button
+                  @click="addChange(rn)"
+                  class="mt-4 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 text-sm"
+                >
+                  + Änderung hinzufügen
+                </button>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
 
       <!-- Generate JSON Section -->
       <div class="mt-8 bg-white rounded-lg shadow p-6">
@@ -66,13 +330,13 @@
           <h2 class="text-xl font-semibold">JSON Ausgabe</h2>
           <div class="flex items-center gap-2">
             <button
-              onclick="generateJSON()"
+              @click="generateJSON()"
               class="bg-purple-600 text-white px-6 py-2 rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500"
             >
               JSON generieren
             </button>
             <button
-              onclick="generateJSON(); copyToClipboard()"
+              @click="generateJSON(); copyToClipboard()"
               class="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               Copy JSON to Clipboard
@@ -81,7 +345,7 @@
         </div>
         <div>
           <pre
-            id="jsonContent"
+            x-text="jsonOutput"
             class="bg-gray-100 p-4 rounded-md overflow-x-auto text-sm"
           ></pre>
         </div>
@@ -90,864 +354,465 @@
 
     <!-- Image Preview Modal -->
     <div
-      id="imagePreviewModal"
-      class="fixed inset-0 bg-black bg-opacity-75 z-50 hidden items-center justify-center p-4"
-      onclick="closeImagePreview()"
+      x-show="imagePreviewOpen"
+      @click="closeImagePreview()"
+      x-transition:enter="transition ease-out duration-300"
+      x-transition:enter-start="opacity-0"
+      x-transition:enter-end="opacity-100"
+      x-transition:leave="transition ease-in duration-200"
+      x-transition:leave-start="opacity-100"
+      x-transition:leave-end="opacity-0"
+      class="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4"
+      @keydown.escape.window="closeImagePreview()"
     >
       <div class="relative max-w-7xl max-h-full">
         <button
-          onclick="closeImagePreview()"
+          @click="closeImagePreview()"
           class="absolute -top-10 right-0 text-white hover:text-gray-300 text-3xl font-bold leading-none"
         >
           &times;
         </button>
         <img
-          id="previewImage"
-          src=""
+          :src="previewImageUrl"
           alt="Vorschau"
           class="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
-          onclick="event.stopPropagation()"
+          @click.stop
         />
       </div>
     </div>
 
     <script>
-      // KONFIGURATION
-      const DEFAULT_BITBUCKET_URL = "";
+      // Alpine.js Component
+      function editorApp() {
+        return {
+          // Constants
+          DEFAULT_BITBUCKET_URL: "",
+          availableAudiences: ["ADMIN", "USER", "DEVOPS"],
+          changeTypes: ["feature", "change", "fix"],
+          bookmarks: [
+            {
+              name: "Bitbucket Repository",
+              url: "https://bitbucket.org/your-repo",
+              description: "Haupt-Repository",
+            },
+            {
+              name: "Dokumentation",
+              url: "https://docs.example.com",
+              description: "Projekt-Dokumentation",
+            },
+            {
+              name: "Issue Tracker",
+              url: "https://jira.example.com",
+              description: "Bug- und Feature-Tracking",
+            },
+          ],
 
-      // Verfügbare Zielgruppen
-      const AVAILABLE_AUDIENCES = ["ADMIN", "USER", "DEVOPS"];
+          // State
+          bitbucketUrl: "",
+          releaseNotes: [],
+          nextId: 0,
+          messages: [],
+          messageIdCounter: 0,
+          jsonOutput: "",
+          imagePreviewOpen: false,
+          previewImageUrl: "",
 
-      // Verfügbare Change-Typen
-      const CHANGE_TYPES = ["feature", "change", "fix"];
+          // Initialization
+          init() {
+            this.bitbucketUrl =
+              localStorage.getItem("lastUsedJsonUrl") ||
+              this.DEFAULT_BITBUCKET_URL;
 
-      // Fixe Bookmarks (nicht editierbar)
-      const BOOKMARKS = [
-        {
-          name: "Bitbucket Repository",
-          url: "https://bitbucket.org/your-repo",
-          description: "Haupt-Repository",
-        },
-        {
-          name: "Dokumentation",
-          url: "https://docs.example.com",
-          description: "Projekt-Dokumentation",
-        },
-        {
-          name: "Issue Tracker",
-          url: "https://jira.example.com",
-          description: "Bug- und Feature-Tracking",
-        },
-      ];
+            // Initialize Lucide icons after Alpine renders
+            this.$nextTick(() => {
+              lucide.createIcons();
+            });
+          },
 
-      // Globale Daten
-      let releaseNotes = [];
-      let nextId = 0;
+          // Computed property for sorted release notes
+          get sortedReleaseNotes() {
+            return [...this.releaseNotes].sort((a, b) => {
+              if (a.version === "") return -1;
+              if (b.version === "") return 1;
 
-      // Initialisierung - Gespeicherte URL laden oder Default verwenden
-      const savedUrl =
-        localStorage.getItem("lastUsedJsonUrl") || DEFAULT_BITBUCKET_URL;
-      document.getElementById("bitbucketUrl").value = savedUrl;
+              const versionA = (a.version || "0.0.0").split(".").map(Number);
+              const versionB = (b.version || "0.0.0").split(".").map(Number);
 
-      // Bookmarks rendern
-      renderBookmarks();
+              for (let i = 0; i < 3; i++) {
+                if (versionB[i] !== versionA[i]) {
+                  return versionB[i] - versionA[i];
+                }
+              }
+              return 0;
+            });
+          },
 
-      // Hilfsfunktionen für Nachrichten (Toast)
-      function showMessage(message, type = "info") {
-        const messagesDiv = document.getElementById("messages");
-        const messageDiv = document.createElement("div");
+          // Toast Messages
+          showMessage(text, type = "info") {
+            const id = this.messageIdCounter++;
+            const message = { id, text, type, visible: true };
+            this.messages.push(message);
 
-        const colors =
-          type === "error"
-            ? "bg-red-500 text-white"
-            : type === "success"
-            ? "bg-green-500 text-white"
-            : "bg-blue-500 text-white";
+            setTimeout(() => {
+              this.removeMessage(id);
+            }, 5000);
+          },
 
-        messageDiv.className = `${colors} px-6 py-4 rounded-lg shadow-lg transform transition-all duration-300 ease-in-out opacity-0 translate-x-full`;
-        messageDiv.innerHTML = `
-          <div class="flex items-center justify-between gap-4">
-            <span class="font-medium">${message}</span>
-            <button onclick="this.parentElement.parentElement.remove()" class="text-white hover:text-gray-200 font-bold text-xl leading-none">&times;</button>
-          </div>
-        `;
-
-        messagesDiv.appendChild(messageDiv);
-
-        // Animation einblenden
-        setTimeout(() => {
-          messageDiv.classList.remove("opacity-0", "translate-x-full");
-          messageDiv.classList.add("opacity-100", "translate-x-0");
-        }, 10);
-
-        // Automatisch ausblenden nach 5 Sekunden
-        setTimeout(() => {
-          messageDiv.classList.add("opacity-0", "translate-x-full");
-          setTimeout(() => messageDiv.remove(), 300);
-        }, 5000);
-      }
-
-      // Release Notes laden
-      async function loadReleaseNotes() {
-        const url = document.getElementById("bitbucketUrl").value.trim();
-
-        if (!url) {
-          showMessage("Bitte geben Sie eine URL ein.", "error");
-          return;
-        }
-
-        try {
-          const response = await fetch(url);
-
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-          }
-
-          const data = await response.json();
-
-          if (!Array.isArray(data)) {
-            throw new Error("JSON muss ein Array sein.");
-          }
-
-          releaseNotes = data.map((rn, index) => ({
-            ...rn,
-            _id: nextId++,
-          }));
-
-          // URL im localStorage speichern
-          localStorage.setItem("lastUsedJsonUrl", url);
-
-          renderReleaseNotes();
-          showMessage(
-            `${releaseNotes.length} Release Notes erfolgreich geladen.`,
-            "success"
-          );
-        } catch (error) {
-          showMessage(`Fehler beim Laden: ${error.message}`, "error");
-        }
-      }
-
-      // Release Notes rendern
-      function renderReleaseNotes() {
-        const container = document.getElementById("releaseNotesList");
-        container.innerHTML = "";
-
-        // Sortieren nach Version (neueste zuerst)
-        const sorted = [...releaseNotes].sort((a, b) => {
-          // Formular zur Erstellung an den Anfang setzen
-          if (a.version === "") {
-            return -1;
-          } else if (b.version === "") {
-            return 1;
-          }
-
-          const versionA = (a.version || "0.0.0").split(".").map(Number);
-          const versionB = (b.version || "0.0.0").split(".").map(Number);
-
-          for (let i = 0; i < 3; i++) {
-            if (versionB[i] !== versionA[i]) {
-              return versionB[i] - versionA[i];
+          removeMessage(id) {
+            const index = this.messages.findIndex((m) => m.id === id);
+            if (index !== -1) {
+              this.messages[index].visible = false;
+              setTimeout(() => {
+                this.messages = this.messages.filter((m) => m.id !== id);
+              }, 300);
             }
-          }
-          return 0;
-        });
+          },
 
-        const renderDate = (dateString) => {
-          const date = new Date(dateString);
-          return isNaN(date.getTime())
-            ? "N/A"
-            : date.toLocaleDateString("de-DE", {
-                year: "numeric",
-                month: "2-digit",
-                day: "2-digit",
+          // Load Release Notes
+          async loadReleaseNotes() {
+            if (!this.bitbucketUrl.trim()) {
+              this.showMessage("Bitte geben Sie eine URL ein.", "error");
+              return;
+            }
+
+            try {
+              const response = await fetch(this.bitbucketUrl);
+
+              if (!response.ok) {
+                throw new Error(
+                  `HTTP ${response.status}: ${response.statusText}`
+                );
+              }
+
+              const data = await response.json();
+
+              if (!Array.isArray(data)) {
+                throw new Error("JSON muss ein Array sein.");
+              }
+
+              this.releaseNotes = data.map((rn) => ({
+                ...rn,
+                _id: this.nextId++,
+                expanded: false,
+                changes: (rn.changes || []).map((change) => ({
+                  ...change,
+                  imageUrls: change.imageUrls || [],
+                })),
+              }));
+
+              localStorage.setItem("lastUsedJsonUrl", this.bitbucketUrl);
+
+              this.showMessage(
+                `${this.releaseNotes.length} Release Notes erfolgreich geladen.`,
+                "success"
+              );
+
+              this.$nextTick(() => {
+                lucide.createIcons();
               });
-        };
+            } catch (error) {
+              this.showMessage(`Fehler beim Laden: ${error.message}`, "error");
+            }
+          },
 
-        sorted.forEach((rn) => {
-          const div = document.createElement("div");
-          div.className = "bg-white rounded-lg shadow";
-          div.innerHTML = `
-                    <div class="p-4 border-b border-gray-200">
-                        <div class="flex justify-between items-center">
-                            <div class="flex-1">
-                                <h3 class="text-lg font-semibold">
-                                    Version ${rn.version || "N/A"}
-                                </h3>
-                                <p class="text-sm text-gray-600">Datum: ${renderDate(
-                                  rn.date
-                                )}</p>
-                            </div>
-                            <div class="flex gap-2">
-                                <button onclick="toggleReleaseNote(${rn._id})" 
-                                    class="text-blue-600 hover:text-blue-800 px-3 py-1 border border-blue-600 rounded">
-                                    Bearbeiten
-                                </button>
-                                <button onclick="saveReleaseNote(${rn._id})" 
-                                    class="text-green-600 hover:text-green-800 px-3 py-1 border border-green-600 rounded">
-                                    Speichern
-                                </button>
-                                <button onclick="deleteReleaseNote(${rn._id})" 
-                                    class="text-red-600 hover:text-red-800 px-3 py-1 border border-red-600 rounded">
-                                    Löschen
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    <div id="form-${rn._id}" class="hidden p-6">
-                        ${renderReleaseNoteForm(rn)}
-                    </div>
-                `;
-          container.appendChild(div);
-        });
-      }
+          // Add new release note
+          addNewReleaseNote() {
+            const newReleaseNote = {
+              _id: this.nextId++,
+              version: "",
+              date: new Date().toISOString().split("T")[0],
+              changes: [],
+              expanded: true,
+            };
+            this.releaseNotes.unshift(newReleaseNote);
+          },
 
-      // Formular für einzelne Release Note
-      function renderReleaseNoteForm(rn) {
-        return `
-                <div class="space-y-6">
-                    <!-- Version -->
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Version *</label>
-                        <input type="text" id="version-${rn._id}" value="${
-          rn.version || ""
-        }" 
-                            pattern="^[0-9]+\\.[0-9]+\\.[0-9]+$"
-                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-                            placeholder="1.0.0">
-                        <p class="text-xs text-gray-500 mt-1">Format: X.Y.Z (z.B. 1.2.3)</p>
-                    </div>
+          // Save release note
+          saveReleaseNote(rn) {
+            // Validation
+            if (!rn.version || !/^[0-9]+\.[0-9]+\.[0-9]+$/.test(rn.version)) {
+              this.showMessage("Ungültige Version (Format: X.Y.Z)", "error");
+              return;
+            }
+            if (!rn.date || !/^\d{4}-\d{2}-\d{2}$/.test(rn.date)) {
+              this.showMessage(
+                "Ungültiges Datum (Format: YYYY-MM-DD)",
+                "error"
+              );
+              return;
+            }
 
-                    <!-- Date -->
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Datum *</label>
-                        <input type="date" id="date-${rn._id}" value="${
-          rn.date || ""
-        }" 
-                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500">
-                    </div>
+            // Validate changes
+            for (let i = 0; i < rn.changes.length; i++) {
+              const change = rn.changes[i];
 
-                    <!-- Changes -->
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Änderungen *</label>
-                        <div id="changes-${rn._id}" class="space-y-4">
-                            ${(rn.changes || [])
-                              .map((change, index) =>
-                                renderChangeForm(rn._id, change, index)
-                              )
-                              .join("")}
-                        </div>
-                        <button onclick="addChange(${rn._id})" 
-                            class="mt-4 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 text-sm">
-                            + Änderung hinzufügen
-                        </button>
-                    </div>
-                </div>
-            `;
-      }
-
-      // Formular für einzelne Change
-      function renderChangeForm(rnId, change, changeIndex) {
-        return `
-                <div class="border border-gray-300 rounded-lg p-4 bg-gray-50" id="change-${rnId}-${changeIndex}" data-change-index="${changeIndex}">
-                    <div class="flex justify-between items-center mb-4">
-                        <h4 class="font-semibold text-sm">Änderung ${
-                          changeIndex + 1
-                        }</h4>
-                        <button onclick="removeChange(${rnId}, ${changeIndex})" 
-                            class="text-red-600 hover:text-red-800 text-sm">
-                            Entfernen
-                        </button>
-                    </div>
-                    
-                    <!-- Title -->
-                    <div class="mb-3">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Title *</label>
-                        <div class="flex gap-2">
-                            <input type="text" id="title-${rnId}-${changeIndex}" 
-                                value="${change.title || ""}"
-                                class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-                                placeholder="Titel der Änderung">
-                            <select id="type-${rnId}-${changeIndex}" 
-                                class="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500">
-                                ${CHANGE_TYPES.map(
-                                  (type) => `
-                                <option value="${type}" ${
-                                    (change.type || "feature") === type
-                                      ? "selected"
-                                      : ""
-                                  }>${type}</option>`
-                                ).join("")}
-                            </select>
-                        </div>
-                    </div>
-
-                    <!-- Audience -->
-                    <div class="mb-3">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Zielgruppe *</label>
-                        <div class="flex flex-wrap items-center gap-4">
-                            ${AVAILABLE_AUDIENCES.map(
-                              (aud) => `
-                            <label class="flex items-center">
-                                <input type="checkbox" id="audience-${aud.toLowerCase()}-${rnId}-${changeIndex}" 
-                                    ${
-                                      (
-                                        change.audience || AVAILABLE_AUDIENCES
-                                      ).includes(aud)
-                                        ? "checked"
-                                        : ""
-                                    }
-                                    class="mr-2">
-                                <span>${aud}</span>
-                            </label>`
-                            ).join("")}
-                        </div>
-                    </div>
-
-                    <!-- Description -->
-                    <div class="mb-3">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Beschreibung *</label>
-                        <textarea id="description-${rnId}-${changeIndex}" 
-                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-                            rows="3">${change.description || ""}</textarea>
-                    </div>
-
-                    <!-- Image URLs -->
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Bild-URLs (optional)</label>
-                        <div id="imageUrls-${rnId}-${changeIndex}" class="space-y-2">
-                            ${(change.imageUrls || [])
-                              .map((url, urlIndex) =>
-                                renderImageUrlInput(
-                                  rnId,
-                                  changeIndex,
-                                  url,
-                                  urlIndex
-                                )
-                              )
-                              .join("")}
-                        </div>
-                        <button onclick="addImageUrl(${rnId}, ${changeIndex})" 
-                            class="mt-2 bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm">
-                            + Bild-URL hinzufügen
-                        </button>
-                    </div>
-                </div>
-            `;
-      }
-
-      // Input-Feld für Image URL
-      function renderImageUrlInput(rnId, changeIndex, url, urlIndex) {
-        return `
-                <div class="flex gap-2" id="imageUrl-${rnId}-${changeIndex}-${urlIndex}">
-                    <input type="url" id="imageUrlValue-${rnId}-${changeIndex}-${urlIndex}" 
-                        value="${url || ""}"
-                        pattern="^https://[^\\s/$.?#].[^\\s]*$"
-                        class="flex-1 px-3 py-1 border border-gray-300 rounded-md text-sm"
-                        placeholder="https://example.com/image.png">
-                    <button onclick="openImagePreviewFromInput(${rnId}, ${changeIndex}, ${urlIndex}); event.stopPropagation();" 
-                        class="text-blue-600 hover:text-blue-800 px-2 text-sm"
-                        title="Vorschau">
-                        &#x1F441;
-                    </button>
-                    <button onclick="removeImageUrl(${rnId}, ${changeIndex}, ${urlIndex})" 
-                        class="text-red-600 hover:text-red-800 px-2 text-sm">
-                        ✕
-                    </button>
-                </div>
-            `;
-      }
-
-      // Toggle Release Note anzeigen/verstecken
-      function toggleReleaseNote(id) {
-        const form = document.getElementById(`form-${id}`);
-        form.classList.toggle("hidden");
-      }
-
-      // Neue Release Note hinzufügen
-      function addNewReleaseNote() {
-        const newReleaseNote = {
-          _id: nextId++,
-          version: "",
-          date: new Date().toISOString().split("T")[0],
-          changes: [],
-        };
-        releaseNotes.unshift(newReleaseNote); // Am Anfang einfügen
-        renderReleaseNotes();
-        toggleReleaseNote(newReleaseNote._id);
-      }
-
-      // Release Note speichern
-      function saveReleaseNote(id) {
-        const rn = releaseNotes.find((r) => r._id === id);
-        if (!rn) return;
-
-        // Daten aus Formular lesen
-        const version = document.getElementById(`version-${id}`)?.value.trim();
-        const date = document.getElementById(`date-${id}`)?.value.trim();
-
-        // Validierung
-        if (!version || !/^[0-9]+\.[0-9]+\.[0-9]+$/.test(version)) {
-          showMessage("Ungültige Version (Format: X.Y.Z)", "error");
-          return;
-        }
-        if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-          showMessage("Ungültiges Datum (Format: YYYY-MM-DD)", "error");
-          return;
-        }
-
-        // Changes sammeln
-        const changes = [];
-        const changeElements = document.querySelectorAll(
-          `[data-change-index][id^="change-${id}-"]`
-        );
-
-        for (let i = 0; i < changeElements.length; i++) {
-          const changeIndex = parseInt(
-            changeElements[i].getAttribute("data-change-index")
-          );
-          const title = document
-            .getElementById(`title-${id}-${changeIndex}`)
-            ?.value.trim();
-
-          if (!title || title.length < 1) {
-            showMessage(
-              `Change ${changeIndex + 1}: Titel ist erforderlich`,
-              "error"
-            );
-            return;
-          }
-
-          const type =
-            document.getElementById(`type-${id}-${changeIndex}`)?.value ||
-            "feature";
-
-          const audience = [];
-          for (const aud of AVAILABLE_AUDIENCES) {
-            if (
-              document.getElementById(
-                `audience-${aud.toLowerCase()}-${id}-${changeIndex}`
-              )?.checked
-            )
-              audience.push(aud);
-          }
-
-          if (audience.length === 0) {
-            showMessage(
-              `Change ${
-                changeIndex + 1
-              }: Mindestens eine Zielgruppe erforderlich`,
-              "error"
-            );
-            return;
-          }
-
-          const description = document
-            .getElementById(`description-${id}-${changeIndex}`)
-            ?.value.trim();
-          if (!description || description.length < 1) {
-            showMessage(
-              `Change ${changeIndex + 1}: Beschreibung fehlt`,
-              "error"
-            );
-            return;
-          }
-
-          const imageUrls = [];
-          let urlIndex = 0;
-          while (true) {
-            const urlInput = document.getElementById(
-              `imageUrlValue-${id}-${changeIndex}-${urlIndex}`
-            );
-            if (!urlInput) break;
-
-            const url = urlInput.value.trim();
-            if (url) {
-              if (!/^https:\/\/[^\s/$.?#].[^\s]*$/.test(url)) {
-                showMessage(
-                  `Change ${changeIndex + 1}, URL ${
-                    urlIndex + 1
-                  }: Ungültige URL`,
+              if (!change.title || change.title.trim().length < 1) {
+                this.showMessage(
+                  `Change ${i + 1}: Titel ist erforderlich`,
                   "error"
                 );
                 return;
               }
-              imageUrls.push(url);
-            }
-            urlIndex++;
-          }
 
-          const change = { title, type, audience, description };
-          if (imageUrls.length > 0) change.imageUrls = imageUrls;
-          changes.push(change);
-        }
+              if (!change.audience || change.audience.length === 0) {
+                this.showMessage(
+                  `Change ${i + 1}: Mindestens eine Zielgruppe erforderlich`,
+                  "error"
+                );
+                return;
+              }
 
-        if (changes.length === 0) {
-          showMessage("Mindestens eine Änderung erforderlich", "error");
-          return;
-        }
+              if (!change.description || change.description.trim().length < 1) {
+                this.showMessage(
+                  `Change ${i + 1}: Beschreibung fehlt`,
+                  "error"
+                );
+                return;
+              }
 
-        // Daten in releaseNotes aktualisieren
-        rn.version = version;
-        rn.date = date;
-        rn.changes = changes;
-
-        renderReleaseNotes();
-      }
-
-      // Release Note löschen
-      function deleteReleaseNote(id) {
-        if (confirm("Möchten Sie diese Release Note wirklich löschen?")) {
-          releaseNotes = releaseNotes.filter((rn) => rn._id !== id);
-          renderReleaseNotes();
-        }
-      }
-
-      // Change hinzufügen
-      function addChange(rnId) {
-        const rn = releaseNotes.find((r) => r._id === rnId);
-        if (!rn) return;
-
-        if (!rn.changes) rn.changes = [];
-
-        rn.changes.push({
-          title: "",
-          type: "feature",
-          audience: [...AVAILABLE_AUDIENCES],
-          description: "",
-          imageUrls: [],
-        });
-
-        const changesContainer = document.getElementById(`changes-${rnId}`);
-        const changeIndex = rn.changes.length - 1;
-        changesContainer.insertAdjacentHTML(
-          "beforeend",
-          renderChangeForm(rnId, rn.changes[changeIndex], changeIndex)
-        );
-      }
-
-      // Change entfernen
-      function removeChange(rnId, changeIndex) {
-        const rn = releaseNotes.find((r) => r._id === rnId);
-        if (!rn) return;
-
-        // Erst alle aktuellen Werte aus dem Formular in das Datenmodell übernehmen
-        const changeElements = document.querySelectorAll(
-          `[data-change-index][id^="change-${rnId}-"]`
-        );
-
-        for (let i = 0; i < changeElements.length; i++) {
-          const idx = parseInt(
-            changeElements[i].getAttribute("data-change-index")
-          );
-
-          if (idx === changeIndex) continue; // Die zu löschende Change überspringen
-
-          const title =
-            document.getElementById(`title-${rnId}-${idx}`)?.value.trim() || "";
-
-          const type =
-            document.getElementById(`type-${rnId}-${idx}`)?.value || "feature";
-
-          const audience = [];
-          for (const aud of AVAILABLE_AUDIENCES) {
-            if (
-              document.getElementById(
-                `audience-${aud.toLowerCase()}-${rnId}-${idx}`
-              )?.checked
-            )
-              audience.push(aud);
-          }
-
-          const description =
-            document.getElementById(`description-${rnId}-${idx}`)?.value || "";
-
-          const imageUrls = [];
-          let urlIndex = 0;
-          while (true) {
-            const urlInput = document.getElementById(
-              `imageUrlValue-${rnId}-${idx}-${urlIndex}`
-            );
-            if (!urlInput) break;
-
-            const url = urlInput.value.trim();
-            if (url) imageUrls.push(url);
-            urlIndex++;
-          }
-
-          // Daten aktualisieren
-          if (rn.changes[idx]) {
-            rn.changes[idx].title = title;
-            rn.changes[idx].type = type;
-            rn.changes[idx].audience = audience;
-            rn.changes[idx].description = description;
-            rn.changes[idx].imageUrls = imageUrls;
-          }
-        }
-
-        // Jetzt die Change entfernen
-        rn.changes.splice(changeIndex, 1);
-
-        // Neu rendern mit aktualisierten Daten
-        const changesContainer = document.getElementById(`changes-${rnId}`);
-        changesContainer.innerHTML = rn.changes
-          .map((change, index) => renderChangeForm(rnId, change, index))
-          .join("");
-      }
-
-      // Image URL hinzufügen
-      function addImageUrl(rnId, changeIndex) {
-        const rn = releaseNotes.find((r) => r._id === rnId);
-        if (!rn || !rn.changes[changeIndex]) return;
-
-        if (!rn.changes[changeIndex].imageUrls) {
-          rn.changes[changeIndex].imageUrls = [];
-        }
-
-        rn.changes[changeIndex].imageUrls.push("");
-
-        const container = document.getElementById(
-          `imageUrls-${rnId}-${changeIndex}`
-        );
-        const urlIndex = rn.changes[changeIndex].imageUrls.length - 1;
-        container.insertAdjacentHTML(
-          "beforeend",
-          renderImageUrlInput(rnId, changeIndex, "", urlIndex)
-        );
-      }
-
-      // Image URL entfernen
-      function removeImageUrl(rnId, changeIndex, urlIndex) {
-        const rn = releaseNotes.find((r) => r._id === rnId);
-        if (!rn || !rn.changes[changeIndex]) return;
-
-        rn.changes[changeIndex].imageUrls.splice(urlIndex, 1);
-
-        document
-          .getElementById(`imageUrl-${rnId}-${changeIndex}-${urlIndex}`)
-          .remove();
-      }
-
-      // JSON generieren
-      function generateJSON() {
-        const errors = [];
-        const result = [];
-
-        for (const rn of releaseNotes) {
-          // Version validieren
-          const version = document
-            .getElementById(`version-${rn._id}`)
-            ?.value.trim();
-          if (!version || !/^[0-9]+\.[0-9]+\.[0-9]+$/.test(version)) {
-            errors.push(
-              `Release Note ID ${rn._id}: Ungültige Version (Format: X.Y.Z)`
-            );
-            continue;
-          }
-
-          // Datum validieren
-          const date = document.getElementById(`date-${rn._id}`)?.value.trim();
-          if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-            errors.push(
-              `Release Note ID ${rn._id}: Ungültiges Datum (Format: YYYY-MM-DD)`
-            );
-            continue;
-          }
-
-          // Changes sammeln und validieren
-          const changes = [];
-          const changeElements = document.querySelectorAll(
-            `[data-change-index][id^="change-${rn._id}-"]`
-          );
-
-          for (let i = 0; i < changeElements.length; i++) {
-            const changeIndex = parseInt(
-              changeElements[i].getAttribute("data-change-index")
-            );
-            const title = document
-              .getElementById(`title-${rn._id}-${changeIndex}`)
-              ?.value.trim();
-
-            if (!title || title.length < 1) {
-              errors.push(
-                `Release Note ${version}, Change ${
-                  changeIndex + 1
-                }: Titel ist erforderlich`
-              );
-              continue;
-            }
-
-            const type =
-              document.getElementById(`type-${rn._id}-${changeIndex}`)?.value ||
-              "feature";
-
-            // Audience sammeln
-            const audience = [];
-            for (const aud of AVAILABLE_AUDIENCES) {
-              if (
-                document.getElementById(
-                  `audience-${aud.toLowerCase()}-${rn._id}-${changeIndex}`
-                )?.checked
-              )
-                audience.push(aud);
-            }
-
-            if (audience.length === 0) {
-              errors.push(
-                `Release Note ${version}, Change ${
-                  changeIndex + 1
-                }: Mindestens eine Zielgruppe erforderlich`
-              );
-              continue;
-            }
-
-            const description = document
-              .getElementById(`description-${rn._id}-${changeIndex}`)
-              ?.value.trim();
-            if (!description || description.length < 1) {
-              errors.push(
-                `Release Note ${version}, Change ${
-                  changeIndex + 1
-                }: Beschreibung fehlt`
-              );
-              continue;
-            }
-
-            // Image URLs sammeln
-            const imageUrls = [];
-            let urlIndex = 0;
-            while (true) {
-              const urlInput = document.getElementById(
-                `imageUrlValue-${rn._id}-${changeIndex}-${urlIndex}`
-              );
-              if (!urlInput) break;
-
-              const url = urlInput.value.trim();
-              if (url) {
-                if (!/^https:\/\/[^\s/$.?#].[^\s]*$/.test(url)) {
-                  errors.push(
-                    `Release Note ${version}, Change ${changeIndex + 1}, URL ${
-                      urlIndex + 1
-                    }: Ungültige URL (muss mit https:// beginnen)`
-                  );
-                } else {
-                  imageUrls.push(url);
+              // Validate image URLs
+              if (change.imageUrls) {
+                for (let j = 0; j < change.imageUrls.length; j++) {
+                  const url = change.imageUrls[j];
+                  if (url && !/^https:\/\/[^\s/$.?#].[^\s]*$/.test(url)) {
+                    this.showMessage(
+                      `Change ${i + 1}, URL ${j + 1}: Ungültige URL`,
+                      "error"
+                    );
+                    return;
+                  }
                 }
               }
-              urlIndex++;
             }
 
-            const change = {
-              title,
-              type,
-              audience,
-              description,
-            };
-
-            if (imageUrls.length > 0) {
-              change.imageUrls = imageUrls;
+            if (rn.changes.length === 0) {
+              this.showMessage(
+                "Mindestens eine Änderung erforderlich",
+                "error"
+              );
+              return;
             }
 
-            changes.push(change);
-          }
-
-          if (changes.length === 0) {
-            errors.push(
-              `Release Note ${version}: Mindestens eine Änderung erforderlich`
+            this.showMessage(
+              "Release Note erfolgreich gespeichert!",
+              "success"
             );
-            continue;
-          }
+            rn.expanded = false;
+          },
 
-          result.push({
-            version,
-            date,
-            changes,
-          });
-        }
+          // Delete release note
+          deleteReleaseNote(id) {
+            if (confirm("Möchten Sie diese Release Note wirklich löschen?")) {
+              this.releaseNotes = this.releaseNotes.filter(
+                (rn) => rn._id !== id
+              );
+              this.showMessage("Release Note gelöscht.", "success");
+            }
+          },
 
-        if (errors.length > 0) {
-          showMessage(`Validierungsfehler:\n${errors.join("\n")}`, "error");
-          return;
-        }
+          // Add change to release note
+          addChange(rn) {
+            if (!rn.changes) rn.changes = [];
 
-        // JSON anzeigen
-        const json = JSON.stringify(result, null, 2);
-        document.getElementById("jsonContent").textContent = json;
+            rn.changes.push({
+              title: "",
+              type: "feature",
+              audience: [...this.availableAudiences],
+              description: "",
+              imageUrls: [],
+            });
+          },
+
+          // Remove change from release note
+          removeChange(rn, changeIndex) {
+            rn.changes.splice(changeIndex, 1);
+          },
+
+          // Toggle audience for a change
+          toggleAudience(change, audience) {
+            const index = change.audience.indexOf(audience);
+            if (index > -1) {
+              change.audience.splice(index, 1);
+            } else {
+              change.audience.push(audience);
+            }
+          },
+
+          // Add image URL to change
+          addImageUrl(change) {
+            if (!change.imageUrls) change.imageUrls = [];
+            change.imageUrls.push("");
+          },
+
+          // Remove image URL from change
+          removeImageUrl(change, urlIndex) {
+            change.imageUrls.splice(urlIndex, 1);
+          },
+
+          // Generate JSON
+          generateJSON() {
+            const errors = [];
+            const result = [];
+
+            for (const rn of this.releaseNotes) {
+              if (!rn.version || !/^[0-9]+\.[0-9]+\.[0-9]+$/.test(rn.version)) {
+                errors.push(
+                  `Release Note ID ${rn._id}: Ungültige Version (Format: X.Y.Z)`
+                );
+                continue;
+              }
+
+              if (!rn.date || !/^\d{4}-\d{2}-\d{2}$/.test(rn.date)) {
+                errors.push(
+                  `Release Note ID ${rn._id}: Ungültiges Datum (Format: YYYY-MM-DD)`
+                );
+                continue;
+              }
+
+              const changes = [];
+              for (let i = 0; i < rn.changes.length; i++) {
+                const change = rn.changes[i];
+
+                if (!change.title || change.title.trim().length < 1) {
+                  errors.push(
+                    `Release Note ${rn.version}, Change ${
+                      i + 1
+                    }: Titel ist erforderlich`
+                  );
+                  continue;
+                }
+
+                if (!change.audience || change.audience.length === 0) {
+                  errors.push(
+                    `Release Note ${rn.version}, Change ${
+                      i + 1
+                    }: Mindestens eine Zielgruppe erforderlich`
+                  );
+                  continue;
+                }
+
+                if (
+                  !change.description ||
+                  change.description.trim().length < 1
+                ) {
+                  errors.push(
+                    `Release Note ${rn.version}, Change ${
+                      i + 1
+                    }: Beschreibung fehlt`
+                  );
+                  continue;
+                }
+
+                const validImageUrls = (change.imageUrls || []).filter(
+                  (url) => {
+                    if (!url.trim()) return false;
+                    if (!/^https:\/\/[^\s/$.?#].[^\s]*$/.test(url)) {
+                      errors.push(
+                        `Release Note ${rn.version}, Change ${
+                          i + 1
+                        }: Ungültige URL "${url}"`
+                      );
+                      return false;
+                    }
+                    return true;
+                  }
+                );
+
+                const changeData = {
+                  title: change.title,
+                  type: change.type,
+                  audience: change.audience,
+                  description: change.description,
+                };
+
+                if (validImageUrls.length > 0) {
+                  changeData.imageUrls = validImageUrls;
+                }
+
+                changes.push(changeData);
+              }
+
+              if (changes.length === 0) {
+                errors.push(
+                  `Release Note ${rn.version}: Mindestens eine Änderung erforderlich`
+                );
+                continue;
+              }
+
+              result.push({
+                version: rn.version,
+                date: rn.date,
+                changes,
+              });
+            }
+
+            if (errors.length > 0) {
+              this.showMessage(
+                `Validierungsfehler:\n${errors.join("\n")}`,
+                "error"
+              );
+              return;
+            }
+
+            this.jsonOutput = JSON.stringify(result, null, 2);
+          },
+
+          // Copy to clipboard
+          copyToClipboard() {
+            if (!this.jsonOutput) {
+              this.showMessage("Bitte generieren Sie zuerst JSON.", "error");
+              return;
+            }
+
+            navigator.clipboard
+              .writeText(this.jsonOutput)
+              .then(() => {
+                this.showMessage(
+                  "JSON in die Zwischenablage kopiert!",
+                  "success"
+                );
+              })
+              .catch((err) => {
+                this.showMessage(
+                  `Fehler beim Kopieren: ${err.message}`,
+                  "error"
+                );
+              });
+          },
+
+          // Image preview
+          openImagePreview(url) {
+            if (!url || !url.trim()) {
+              this.showMessage("Bitte geben Sie zuerst eine URL ein.", "error");
+              return;
+            }
+            this.previewImageUrl = url;
+            this.imagePreviewOpen = true;
+          },
+
+          closeImagePreview() {
+            this.imagePreviewOpen = false;
+            this.previewImageUrl = "";
+          },
+
+          // Utility: Format date
+          formatDate(dateString) {
+            const date = new Date(dateString);
+            return isNaN(date.getTime())
+              ? "N/A"
+              : date.toLocaleDateString("de-DE", {
+                  year: "numeric",
+                  month: "2-digit",
+                  day: "2-digit",
+                });
+          },
+        };
       }
 
-      // Copy to Clipboard
-      function copyToClipboard() {
-        const jsonContent = document.getElementById("jsonContent").textContent;
-        navigator.clipboard
-          .writeText(jsonContent)
-          .then(() => {
-            showMessage("JSON in die Zwischenablage kopiert!", "success");
-          })
-          .catch((err) => {
-            showMessage(`Fehler beim Kopieren: ${err.message}`, "error");
-          });
-      }
-
-      // Image Preview
-      function openImagePreviewFromInput(rnId, changeIndex, urlIndex) {
-        const urlInput = document.getElementById(
-          `imageUrlValue-${rnId}-${changeIndex}-${urlIndex}`
-        );
-        if (!urlInput) return;
-
-        const url = urlInput.value.trim();
-        if (!url) {
-          showMessage("Bitte geben Sie zuerst eine URL ein.", "error");
-          return;
-        }
-
-        openImagePreview(url);
-      }
-
-      function openImagePreview(url) {
-        const modal = document.getElementById("imagePreviewModal");
-        const img = document.getElementById("previewImage");
-        img.src = url;
-        modal.classList.remove("hidden");
-        modal.classList.add("flex");
-      }
-
-      function closeImagePreview() {
-        const modal = document.getElementById("imagePreviewModal");
-        modal.classList.add("hidden");
-        modal.classList.remove("flex");
-      }
-
-      // ESC-Taste schließt die Vorschau
-      document.addEventListener("keydown", (e) => {
-        if (e.key === "Escape") {
-          closeImagePreview();
-        }
-      });
-
-      // Bookmarks rendern
-      function renderBookmarks() {
-        const container = document.getElementById("bookmarksList");
-        if (!container) return;
-
-        container.innerHTML = BOOKMARKS.map(
-          (bookmark) => `
-          <a href="${bookmark.url}" target="_blank" rel="noopener noreferrer" 
-             class="flex items-start gap-3 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-blue-500 transition-colors">
-            <i data-lucide="external-link" class="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5"></i>
-            <div class="flex-1 min-w-0">
-              <div class="font-medium text-gray-900">${bookmark.name}</div>
-              <div class="text-sm text-gray-600">${bookmark.description}</div>
-              <div class="text-xs text-gray-400 truncate mt-1">${bookmark.url}</div>
-            </div>
-          </a>
-        `
-        ).join("");
-
+      // Initialize Lucide icons when DOM is ready
+      document.addEventListener("alpine:init", () => {
         lucide.createIcons();
-      }
-
-      // Lucide Icons initialisieren
-      lucide.createIcons();
+      });
     </script>
   </body>
 </html>
